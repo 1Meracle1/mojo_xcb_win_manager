@@ -1,7 +1,6 @@
 from collections import Dict, List
 from utils import Variant, StringSlice
 
-
 struct Ini:
     alias Value = Variant[Int, Float64, Bool, String]
     alias ValueMap = Dict[String, Self.Value]
@@ -13,18 +12,23 @@ struct Ini:
     fn load_from_path(file_path: String) raises -> Self.Map:
         var res = Self.Map()
         with open(file_path, "r") as file:
+            var bytes = file.read_bytes()
+            if not bytes:
+                raise Error("File " + file_path + " is empty")
+            bytes.append(0)
+            var file_data: String = bytes
+
             var section_name = String()
             var section = Self.Section(Self.ValueMap())
 
-            var lines = String(file.read_bytes()).split("\n")
+            var lines = file_data.split("\n")
             for line_data in lines:
-                var line = String(line_data[].strip())
-                if not line:
-                    continue
-
+                var line: String = line_data[].strip()
                 var comment_start_idx = line.find(";")
                 if comment_start_idx != -1:
                     line = line[:comment_start_idx]
+                if not line:
+                    continue
 
                 if line[0] == "[":
                     var end_idx = line.find("]")
@@ -39,11 +43,13 @@ struct Ini:
 
                     var line_len = line.__len__()
                     if line_len > 2 and line[1] == "[":
-                        section_name = line[2 : line_len - 2]
+                        section_name = line[2 : line_len - 2].strip()
                         section = Self.Section(Self.ValueStrList())
                     else:
-                        section_name = line[1 : line_len - 1]
+                        section_name = line[1 : line_len - 1].strip()
                         section = Self.Section(Self.ValueMap())
+
+                    continue
 
                 if not section_name:
                     raise Error("No section name populated")

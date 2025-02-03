@@ -1,6 +1,7 @@
 #!/bin/fish
 
-mojo build -D ASSERT=all --optimization-level 0 --debug-level full src/main.mojo -o ./bin/wm || exit # --sanitize address
+#mojo build -D ASSERT=all --optimization-level 0 --debug-level full src/main.mojo -o ./bin/wm || exit # --sanitize address
+mojo build --optimization-level 3 --debug-level none src/main.mojo -o bin/wm || exit
 
 set XEPHYR $(whereis -b Xephyr | sed -E 's/^.*: ?//')
 if [ -z "$XEPHYR" ]

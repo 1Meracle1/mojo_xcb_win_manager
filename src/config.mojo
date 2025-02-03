@@ -19,13 +19,13 @@ struct Color(Writable):
 
     fn write_to[W: Writer](self, mut writer: W):
         writer.write(
-            "Color(r=",
+            "Color(r = ",
             self.r,
-            ", g=",
+            ", g = ",
             self.g,
-            ", b=",
+            ", b = ",
             self.b,
-            ", a=",
+            ", a = ",
             self.a,
             ")",
         )
@@ -69,23 +69,23 @@ struct StyleConfig(Writable):
 
     fn write_to[W: Writer](self, mut writer: W):
         writer.write(
-            "StyleConfig(\n\tdefault_width_percent_available_width=",
+            "StyleConfig(\n\tdefault_width_percent_available_width = ",
             self.default_width_percent_available_width,
-            ",\n\tminimum_width_window=",
+            ",\n\tminimum_width_window = ",
             self.minimum_width_window,
-            ",\n\tminimum_height_window=",
+            ",\n\tminimum_height_window = ",
             self.minimum_height_window,
-            ",\n\tinner_gap=",
+            ",\n\tinner_gap = ",
             self.inner_gap,
-            ",\n\touter_gap_horizontal=",
+            ",\n\touter_gap_horizontal = ",
             self.outer_gap_horizontal,
-            ",\n\touter_gap_vertical=",
+            ",\n\touter_gap_vertical = ",
             self.outer_gap_vertical,
-            ",\n\tborder_width=",
+            ",\n\tborder_width = ",
             self.border_width,
-            ",\n\tborder_default_color=",
+            ",\n\tborder_default_color = ",
             self.border_default_color,
-            ",\n\tborder_active_color=",
+            ",\n\tborder_active_color = ",
             self.border_active_color,
             ",\n)",
         )
@@ -104,11 +104,11 @@ struct EventsConfig(Writable):
 
     fn write_to[W: Writer](self, mut writer: W):
         writer.write(
-            "EventsConfig(\n\ttarget_fps=",
+            "EventsConfig(\n\ttarget_fps = ",
             self.target_fps,
-            ",\n\tanimations_enabled=",
+            ",\n\tanimations_enabled = ",
             self.animations_enabled,
-            ",\n\tanimation_duration=",
+            ",\n\tanimation_duration = ",
             self.animation_duration,
             ",\n)",
         )
@@ -187,40 +187,62 @@ struct Config(Writable):
     @staticmethod
     fn _decode_from_file(file_path: String) raises -> Config:
         var map = Ini.load_from_path(file_path)
+
+        if not map["style"].isa[Ini.ValueMap]():
+            raise Error("No valid 'style' section found")
+        if not map["events"].isa[Ini.ValueMap]():
+            raise Error("No valid 'events' section found")
+        if not map["keymap"].isa[Ini.ValueStrList]():
+            raise Error("No valid 'keymap' section found")
+        if not map["startup_actions"].isa[Ini.ValueStrList]():
+            raise Error("No valid 'startup_actions' section found")
+
         var style_map = map["style"].take[Ini.ValueMap]()
         var events_map = map["events"].take[Ini.ValueMap]()
+
+        @parameter
+        fn take_safe[
+            T: CollectionElement
+        ](mut m: Ini.ValueMap, key: String) raises -> T:
+            var value = m[key]
+            if not value.isa[T]():
+                raise Error("key '" + key + "' is not found with expected type")
+            return value.take[T]()
+
         return Config(
             style=StyleConfig(
-                default_width_percent_available_width=style_map[
-                    "default_width_percent_available_width"
-                ].take[Float64](),
-                minimum_width_window=style_map["minimum_width_window"].take[
-                    Int
-                ](),
-                minimum_height_window=style_map["minimum_height_window"].take[
-                    Int
-                ](),
-                inner_gap=style_map["inner_gap"].take[Int](),
-                outer_gap_horizontal=style_map["outer_gap_horizontal"].take[
-                    Int
-                ](),
-                outer_gap_vertical=style_map["outer_gap_vertical"].take[Int](),
-                border_width=style_map["border_width"].take[Int](),
+                default_width_percent_available_width=take_safe[Float64](
+                    style_map, "default_width_percent_available_width"
+                ),
+                minimum_width_window=take_safe[Int](
+                    style_map, "minimum_width_window"
+                ),
+                minimum_height_window=take_safe[Int](
+                    style_map, "minimum_height_window"
+                ),
+                inner_gap=take_safe[Int](style_map, "inner_gap"),
+                outer_gap_horizontal=take_safe[Int](
+                    style_map, "outer_gap_horizontal"
+                ),
+                outer_gap_vertical=take_safe[Int](
+                    style_map, "outer_gap_vertical"
+                ),
+                border_width=take_safe[Int](style_map, "border_width"),
                 border_default_color=Color.from_hex_str(
-                    style_map["border_default_color"].take[String]()
+                    take_safe[String](style_map, "border_default_color")
                 ),
                 border_active_color=Color.from_hex_str(
-                    style_map["border_active_color"].take[String]()
+                    take_safe[String](style_map, "border_active_color")
                 ),
             ),
             events=EventsConfig(
-                target_fps=events_map["target_fps"].take[Int](),
-                animations_enabled=events_map["animations_enabled"].take[
-                    Bool
-                ](),
-                animation_duration=events_map["animation_duration"].take[
-                    Float64
-                ](),
+                target_fps=take_safe[Int](events_map, "target_fps"),
+                animations_enabled=take_safe[Bool](
+                    events_map, "animations_enabled"
+                ),
+                animation_duration=take_safe[Float64](
+                    events_map, "animation_duration"
+                ),
             ),
             keymap=map["keymap"].take[Ini.ValueStrList](),
             startup_actions=map["startup_actions"].take[Ini.ValueStrList](),
@@ -235,27 +257,30 @@ struct Config(Writable):
                 self = Self._decode_from_file(file_path)
                 return
             except e:
-                print("Failed to decode config from file:", file_path)
+                print(
+                    "Failed to decode config from file:", file_path, "error:", e
+                )
                 continue
-
+        print("Assigning reasonable defaults to the config structure")
         self = Self._default()
 
     fn write_to[W: Writer](self, mut writer: W):
         writer.write(
-            "Config(\n\tstyle=",
+            "Config(\n\tstyle = ",
             self.style,
-            ",\n\tevents=",
+            ",\n\tevents = ",
             self.events,
-            ",\n\tkeymap=[",
+            ",\n\tkeymap = [",
         )
         for idx in range(self.keymap.__len__()):
-            writer.write("\n\t\t[", idx, "]=", self.keymap[idx])
+            writer.write("\n\t\t[", idx, "] = ", self.keymap[idx])
+        writer.write("\n\t],")
 
         writer.write(
-            "),\n\tstartup_actions=[",
+            "),\n\tstartup_actions = [",
         )
 
         for idx in range(self.startup_actions.__len__()):
-            writer.write("\n\t\t[", idx, "]=", self.startup_actions[idx])
+            writer.write("\n\t\t[", idx, "] = ", self.startup_actions[idx])
 
-        writer.write("],\n)")
+        writer.write("\n\t],\n)")
