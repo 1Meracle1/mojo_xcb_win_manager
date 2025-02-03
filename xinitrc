@@ -1,0 +1,2 @@
+alacritty &
+exec ./bin/wm
