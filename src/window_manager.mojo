@@ -79,43 +79,55 @@ struct WindowManager:
         self.xcb.flush()
 
     fn main_loop(mut self):
-        alias frame_time = 1.0 / 60.0
+        var frame_time = 1.0 / self.config.events.target_fps.cast[DType.float64]()
         while True:
             var start_time: Float64 = monotonic()
 
-            while True:
-                generic_event = self.xcb.poll_for_event()
-                if not generic_event:
-                    break
-                var event_type = generic_event[].response_type & ~0x80
-                # print("event_type:", event_type)
-                # if event_type != XCB_MOTION_NOTIFY:
-                #     print("event_type:", event_type)
+            self._poll_events()
 
-                if event_type == XCB_KEY_PRESS:
-                    var key_press = generic_event.bitcast[
-                        xcb_key_press_event_t
-                    ]()
-                    self.keybindings_manager.handle_key_press(key_press)
-
-                elif event_type == XCB_KEY_RELEASE:
-                    var key_release = generic_event.bitcast[
-                        xcb_key_release_event_t
-                    ]()
-                    self.keybindings_manager.handle_key_release(key_release)
-
-                elif event_type == XCB_MAP_REQUEST:
-                    var map_request = generic_event.bitcast[
-                        xcb_map_request_event_t
-                    ]()
-                    self._handle_map_request(map_request)
-
-                self.xcb.flush()
+            if self.config.is_file_updated():
+                try:
+                    var new_config = Config(self.config.file_updated_from)
+                    self.config = new_config
+                    print("updated config successfully, new values:", self.config)
+                except e:
+                    print("Failed to update config:", e)
+                    self.config.time_updated = monotonic()
 
             var end_time: Float64 = monotonic()
             var diff = end_time - start_time
             if diff < frame_time:
                 sleep(frame_time - diff)
+    
+    fn _poll_events(mut self):
+        while True:
+            generic_event = self.xcb.poll_for_event()
+            if not generic_event:
+                break
+            var event_type = generic_event[].response_type & ~0x80
+            # print("event_type:", event_type)
+            # if event_type != XCB_MOTION_NOTIFY:
+            #     print("event_type:", event_type)
+
+            if event_type == XCB_KEY_PRESS:
+                var key_press = generic_event.bitcast[
+                    xcb_key_press_event_t
+                ]()
+                self.keybindings_manager.handle_key_press(key_press)
+
+            elif event_type == XCB_KEY_RELEASE:
+                var key_release = generic_event.bitcast[
+                    xcb_key_release_event_t
+                ]()
+                self.keybindings_manager.handle_key_release(key_release)
+
+            elif event_type == XCB_MAP_REQUEST:
+                var map_request = generic_event.bitcast[
+                    xcb_map_request_event_t
+                ]()
+                self._handle_map_request(map_request)
+
+            self.xcb.flush()
 
     fn _handle_map_request(
         mut self, map_request: UnsafePointer[xcb_map_request_event_t]

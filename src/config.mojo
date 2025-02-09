@@ -2,6 +2,8 @@ from collections import List, InlineArray
 from os.path import exists
 from encoding import Ini
 from memory import bitcast
+from time import monotonic
+from os.fstat import stat
 
 
 @value
@@ -120,72 +122,77 @@ struct Config(Writable):
     var events: EventsConfig
     var keymap: List[String]
     var startup_actions: List[String]
+    var file_updated_from: String
+    var time_updated: UInt
 
     alias DEFAULT_FILE_LOCATIONS = InlineArray[String, 2](
         "./config.ini", "~/.config/mojo_xcb_win_manager/config.ini"
     )
 
-    # when config file path is specified in the command line arguments to the executable
-    # fn __init__(out self, preferred_file_path: String):
+    fn __init__(out self, preferred_file_path: String) raises:
+        if not exists(preferred_file_path):
+            raise Error(
+                "Config file -" + preferred_file_path + "- doesn't exist"
+            )
+        try:
+            self = Self._decode_from_file(preferred_file_path)
+        except e:
+            raise e
 
-    @staticmethod
-    fn _default() -> Config:
-        return Config(
-            style=StyleConfig(),
-            events=EventsConfig(),
-            keymap=List[String](
-                "Alt+Left            focus_window left",
-                "Alt+Right           focus_window right",
-                "Alt+Up              focus_window up",
-                "Alt+Down            focus_window down",
-                "Alt+H               focus_window left",
-                "Alt+L               focus_window right",
-                "Alt+K               focus_window up",
-                "Alt+J               focus_window down",
-                "Alt+Left            focus_window left",
-                "Alt+Right           focus_window right",
-                "Alt+Up              focus_window up",
-                "Alt+Down            focus_window down",
-                "Alt+Ctrl+H          move_window left  15",
-                "Alt+Ctrl+L          move_window right 15",
-                "Alt+Ctrl+K          move_window up    15",
-                "Alt+Ctrl+J          move_window down  15",
-                "Alt+Shift+H         window_size_change horizontal  15",
-                "Alt+Shift+L         window_size_change horizontal  15",
-                "Alt+Shift+J         window_size_change vertical    15",
-                "Alt+Shift+K         window_size_change vertical    15",
-                "Alt+Enter           exec alacritty",
-                "Alt+Shift+D         exec dmenu",
-                "Alt+Q               kill_focused_window",
-                "Alt+Shift+R         restart_window_manager",
-                "Alt+Shift+E         exec prompt_exit_window_manager",
-                "Alt+Shift+Q         exit_window_manager",
-                "Alt+1               switch_to_workspace 1",
-                "Alt+2               switch_to_workspace 2",
-                "Alt+3               switch_to_workspace 3",
-                "Alt+4               switch_to_workspace 4",
-                "Alt+5               switch_to_workspace 5",
-                "Alt+6               switch_to_workspace 6",
-                "Alt+7               switch_to_workspace 7",
-                "Alt+8               switch_to_workspace 8",
-                "Alt+9               switch_to_workspace 9",
-                "Alt+Shift+1         move_focused_window_to_workspace 1",
-                "Alt+Shift+2         move_focused_window_to_workspace 2",
-                "Alt+Shift+3         move_focused_window_to_workspace 3",
-                "Alt+Shift+4         move_focused_window_to_workspace 4",
-                "Alt+Shift+5         move_focused_window_to_workspace 5",
-                "Alt+Shift+6         move_focused_window_to_workspace 6",
-                "Alt+Shift+7         move_focused_window_to_workspace 7",
-                "Alt+Shift+8         move_focused_window_to_workspace 8",
-                "Alt+Shift+9         move_focused_window_to_workspace 9",
-            ),
-            startup_actions=List[String](
-                "exec    feh --bg-scale wallpapers/wallpaper.png"
-            ),
+    fn __init__(out self):
+        for idx in range(self.DEFAULT_FILE_LOCATIONS.__len__()):
+            var file_path = self.DEFAULT_FILE_LOCATIONS[idx]
+            try:
+                self.__init__(file_path)
+                return
+            except e:
+                print(
+                    "Failed to decode config from file:", file_path, "error:", e
+                )
+                continue
+        print("Assigning reasonable defaults to the config structure")
+        self = Self._default()
+
+    fn write_to[W: Writer](self, mut writer: W):
+        writer.write(
+            "Config(\n\tstyle = ",
+            self.style,
+            ",\n\tevents = ",
+            self.events,
+            ",\n\tkeymap = [",
         )
+        for idx in range(self.keymap.__len__()):
+            writer.write("\n\t\t[", idx, "] = ", self.keymap[idx])
+        writer.write("\n\t],")
+
+        writer.write(
+            "),\n\tstartup_actions = [",
+        )
+
+        for idx in range(self.startup_actions.__len__()):
+            writer.write("\n\t\t[", idx, "] = ", self.startup_actions[idx])
+
+        writer.write("\n\t],\n)")
+
+    @always_inline
+    fn was_read_from_valid_file(self) -> Bool:
+        return self.file_updated_from.__len__() > 0
+
+    @always_inline
+    fn is_file_updated(self) -> Bool:
+        try:
+            var file_stats = stat(self.file_updated_from)
+            var file_modified_time = file_stats.st_mtimespec.as_nanoseconds()
+            return file_modified_time > self.time_updated
+        except e:
+            print("Looks like the config file was deleted/moved/renamed, error:", e)
+            return True
 
     @staticmethod
     fn _decode_from_file(file_path: String) raises -> Config:
+        var file_stats = stat(file_path)
+        var file_modified_time = file_stats.st_mtimespec.as_nanoseconds()
+
         var map = Ini.load_from_path(file_path)
 
         if not map["style"].isa[Ini.ValueMap]():
@@ -246,41 +253,64 @@ struct Config(Writable):
             ),
             keymap=map["keymap"].take[Ini.ValueStrList](),
             startup_actions=map["startup_actions"].take[Ini.ValueStrList](),
+            time_updated=file_modified_time,
+            file_updated_from=file_path,
         )
 
-    fn __init__(out self):
-        for idx in range(self.DEFAULT_FILE_LOCATIONS.__len__()):
-            var file_path = self.DEFAULT_FILE_LOCATIONS[idx]
-            if not exists(file_path):
-                continue
-            try:
-                self = Self._decode_from_file(file_path)
-                return
-            except e:
-                print(
-                    "Failed to decode config from file:", file_path, "error:", e
-                )
-                continue
-        print("Assigning reasonable defaults to the config structure")
-        self = Self._default()
-
-    fn write_to[W: Writer](self, mut writer: W):
-        writer.write(
-            "Config(\n\tstyle = ",
-            self.style,
-            ",\n\tevents = ",
-            self.events,
-            ",\n\tkeymap = [",
+    @staticmethod
+    fn _default() -> Config:
+        return Config(
+            style=StyleConfig(),
+            events=EventsConfig(),
+            keymap=List[String](
+                "Alt+Left            focus_window left",
+                "Alt+Right           focus_window right",
+                "Alt+Up              focus_window up",
+                "Alt+Down            focus_window down",
+                "Alt+H               focus_window left",
+                "Alt+L               focus_window right",
+                "Alt+K               focus_window up",
+                "Alt+J               focus_window down",
+                "Alt+Left            focus_window left",
+                "Alt+Right           focus_window right",
+                "Alt+Up              focus_window up",
+                "Alt+Down            focus_window down",
+                "Alt+Ctrl+H          move_window left  15",
+                "Alt+Ctrl+L          move_window right 15",
+                "Alt+Ctrl+K          move_window up    15",
+                "Alt+Ctrl+J          move_window down  15",
+                "Alt+Shift+H         window_size_change horizontal  15",
+                "Alt+Shift+L         window_size_change horizontal  15",
+                "Alt+Shift+J         window_size_change vertical    15",
+                "Alt+Shift+K         window_size_change vertical    15",
+                "Alt+Enter           exec alacritty",
+                "Alt+Shift+D         exec dmenu",
+                "Alt+Q               kill_focused_window",
+                "Alt+Shift+R         restart_window_manager",
+                "Alt+Shift+E         exec prompt_exit_window_manager",
+                "Alt+Shift+Q         exit_window_manager",
+                "Alt+1               switch_to_workspace 1",
+                "Alt+2               switch_to_workspace 2",
+                "Alt+3               switch_to_workspace 3",
+                "Alt+4               switch_to_workspace 4",
+                "Alt+5               switch_to_workspace 5",
+                "Alt+6               switch_to_workspace 6",
+                "Alt+7               switch_to_workspace 7",
+                "Alt+8               switch_to_workspace 8",
+                "Alt+9               switch_to_workspace 9",
+                "Alt+Shift+1         move_focused_window_to_workspace 1",
+                "Alt+Shift+2         move_focused_window_to_workspace 2",
+                "Alt+Shift+3         move_focused_window_to_workspace 3",
+                "Alt+Shift+4         move_focused_window_to_workspace 4",
+                "Alt+Shift+5         move_focused_window_to_workspace 5",
+                "Alt+Shift+6         move_focused_window_to_workspace 6",
+                "Alt+Shift+7         move_focused_window_to_workspace 7",
+                "Alt+Shift+8         move_focused_window_to_workspace 8",
+                "Alt+Shift+9         move_focused_window_to_workspace 9",
+            ),
+            startup_actions=List[String](
+                "exec    feh --bg-scale wallpapers/wallpaper.png"
+            ),
+            time_updated=monotonic(),
+            file_updated_from="",
         )
-        for idx in range(self.keymap.__len__()):
-            writer.write("\n\t\t[", idx, "] = ", self.keymap[idx])
-        writer.write("\n\t],")
-
-        writer.write(
-            "),\n\tstartup_actions = [",
-        )
-
-        for idx in range(self.startup_actions.__len__()):
-            writer.write("\n\t\t[", idx, "] = ", self.startup_actions[idx])
-
-        writer.write("\n\t],\n)")
